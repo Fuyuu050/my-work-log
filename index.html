@@ -3,20 +3,30 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>工時助手 (含自動計算)</title>
+    <title>工時助手 Pro</title>
     <style>
-        body { font-family: -apple-system, sans-serif; display: flex; flex-direction: column; align-items: center; padding: 20px; background: #f8f9fa; color: #333; }
-        .card { background: white; padding: 25px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); width: 100%; max-width: 350px; text-align: center; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; flex-direction: column; align-items: center; padding: 20px; background: #f4f7f9; color: #333; }
+        .card { background: white; padding: 25px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); width: 100%; max-width: 350px; text-align: center; position: relative; }
         #clock { font-size: 1.4rem; color: #444; margin-bottom: 5px; font-weight: bold; }
         #today-summary { background: #e7f3ff; color: #007bff; padding: 10px; border-radius: 10px; margin-bottom: 20px; font-size: 14px; font-weight: bold; }
-        button { width: 100%; padding: 15px; margin: 8px 0; border: none; border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer; transition: 0.2s; }
+        
+        button { width: 100%; padding: 14px; margin: 6px 0; border: none; border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer; transition: 0.2s; }
+        button:active { transform: scale(0.98); opacity: 0.9; }
         .btn-in { background: #28a745; color: white; }
         .btn-out { background: #007bff; color: white; }
+        .btn-manual { background: #6c757d; color: white; font-size: 14px; }
         .btn-export { background: #ffc107; color: #333; margin-top: 15px; }
+
+        /* 彈窗樣式 */
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 100; }
+        .modal-content { background: white; padding: 20px; border-radius: 15px; width: 85%; max-width: 300px; text-align: left; }
+        .modal-content h3 { margin-top: 0; }
+        input, select { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; }
+
         .log-container { margin-top: 25px; width: 100%; max-width: 350px; }
         ul { list-style: none; padding: 0; }
-        li { background: white; margin-bottom: 8px; padding: 12px; border-radius: 10px; font-size: 13px; border-left: 5px solid #ddd; display: flex; justify-content: space-between; align-items: center; }
-        .type-tag { font-weight: bold; padding: 2px 8px; border-radius: 4px; color: white; }
+        li { background: white; margin-bottom: 8px; padding: 12px; border-radius: 10px; font-size: 13px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 5px rgba(0,0,0,0.02); }
+        .tag { font-weight: bold; padding: 2px 8px; border-radius: 4px; color: white; font-size: 11px; }
     </style>
 </head>
 <body>
@@ -24,92 +34,129 @@
 <div class="card">
     <div id="clock">00:00:00</div>
     <div id="today-summary">今日累計工時：0 小時 0 分</div>
-    <button class="btn-in" onclick="addLog('上班')">▶ 上班打卡</button>
-    <button class="btn-out" onclick="addLog('下班')">■ 下班打卡</button>
-    <button class="btn-export" onclick="exportCSV()">📁 匯出本月 CSV</button>
-    <button style="background:none; color:#ccc; font-size:11px;" onclick="clearLogs()">清除所有數據</button>
+    <button class="btn-in" onclick="addLog('上班')">▶ 現在上班打卡</button>
+    <button class="btn-out" onclick="addLog('下班')">■ 現在下班打卡</button>
+    <button class="btn-manual" onclick="toggleModal(true)">🕒 補簽歷史紀錄</button>
+    <button class="btn-export" onclick="exportCSV()">📁 匯出 CSV</button>
+    <button style="background:none; color:#ccc; font-size:11px; margin-top:10px;" onclick="clearLogs()">清除所有數據</button>
+</div>
+
+<div id="manualModal" class="modal">
+    <div class="modal-content">
+        <h3>補簽紀錄</h3>
+        <label>類型：</label>
+        <select id="m-type">
+            <option value="上班">上班</option>
+            <option value="下班">下班</option>
+        </select>
+        <label>日期與時間：</label>
+        <input type="datetime-local" id="m-datetime">
+        <button class="btn-in" onclick="saveManualLog()">確認補簽</button>
+        <button class="btn-manual" style="background:#eee; color:#333;" onclick="toggleModal(false)">取消</button>
+    </div>
 </div>
 
 <div class="log-container">
-    <h3>最近紀錄</h3>
+    <h3>打卡明細</h3>
     <ul id="logList"></ul>
 </div>
 
 <script>
     function updateClock() {
-        const now = new Date();
-        document.getElementById('clock').innerText = now.toLocaleTimeString('zh-TW', { hour12: false });
+        document.getElementById('clock').innerText = new Date().toLocaleTimeString('zh-TW', { hour12: false });
     }
     setInterval(updateClock, 1000);
 
+    // 開關彈窗
+    function toggleModal(show) {
+        const modal = document.getElementById('manualModal');
+        modal.style.display = show ? 'flex' : 'none';
+        if(show) {
+            // 預設時間為現在
+            const now = new Date();
+            now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+            document.getElementById('m-datetime').value = now.toISOString().slice(0, 16);
+        }
+    }
+
+    // 儲存一般紀錄
     function addLog(type) {
-        const now = new Date();
-        const entry = {
+        saveToStorage({
             type: type,
-            timestamp: now.getTime(),
-            date: now.toLocaleDateString('zh-TW'),
-            time: now.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false })
-        };
+            timestamp: new Date().getTime(),
+            date: new Date().toLocaleDateString('zh-TW'),
+            time: new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false })
+        });
+    }
+
+    // 儲存補簽紀錄
+    function saveManualLog() {
+        const type = document.getElementById('m-type').value;
+        const dtValue = document.getElementById('m-datetime').value;
+        if(!dtValue) return alert("請選擇時間");
+
+        const dt = new Date(dtValue);
+        saveToStorage({
+            type: type,
+            timestamp: dt.getTime(),
+            date: dt.toLocaleDateString('zh-TW'),
+            time: dt.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false })
+        });
+        toggleModal(false);
+    }
+
+    function saveToStorage(entry) {
         let logs = JSON.parse(localStorage.getItem('workLogs') || "[]");
-        logs.unshift(entry);
+        logs.push(entry);
+        // 按時間排序 (新到舊)
+        logs.sort((a, b) => b.timestamp - a.timestamp);
         localStorage.setItem('workLogs', JSON.stringify(logs));
         render();
     }
 
     function calculateTodayHours(logs) {
         const today = new Date().toLocaleDateString('zh-TW');
-        const todayLogs = logs.filter(l => l.date === today).reverse();
-        let totalMs = 0;
-        let lastInTime = null;
+        // 計算時需用舊到新排序
+        const todayLogs = logs.filter(l => l.date === today).sort((a,b) => a.timestamp - b.timestamp);
+        let totalMs = 0, lastInTime = null;
 
         todayLogs.forEach(log => {
-            if (log.type === '上班') {
-                lastInTime = log.timestamp;
-            } else if (log.type === '下班' && lastInTime) {
+            if (log.type === '上班') lastInTime = log.timestamp;
+            else if (log.type === '下班' && lastInTime) {
                 totalMs += (log.timestamp - lastInTime);
                 lastInTime = null;
             }
         });
-
-        const totalMinutes = Math.floor(totalMs / 1000 / 60);
-        const h = Math.floor(totalMinutes / 60);
-        const m = totalMinutes % 60;
-        return { h, m };
+        const totalMin = Math.floor(totalMs / 60000);
+        return { h: Math.floor(totalMin/60), m: totalMin%60 };
     }
 
     function render() {
         const logs = JSON.parse(localStorage.getItem('workLogs') || "[]");
-        
-        // 更新今日統計
         const summary = calculateTodayHours(logs);
         document.getElementById('today-summary').innerText = `今日累計工時：${summary.h} 小時 ${summary.m} 分`;
 
-        // 更新列表
-        const list = document.getElementById('logList');
-        list.innerHTML = logs.slice(0, 10).map(l => `
+        document.getElementById('logList').innerHTML = logs.slice(0, 20).map(l => `
             <li>
-                <span class="type-tag" style="background:${l.type === '上班' ? '#28a745' : '#007bff'}">${l.type}</span>
-                <span>${l.date} ${l.time}</span>
+                <span class="tag" style="background:${l.type === '上班' ? '#28a745' : '#007bff'}">${l.type}</span>
+                <span style="color:#666">${l.date}</span>
+                <span style="font-weight:bold">${l.time}</span>
             </li>
         `).join('');
     }
 
     function exportCSV() {
         const logs = JSON.parse(localStorage.getItem('workLogs') || "[]");
-        if (logs.length === 0) return alert("沒有資料可匯出");
-
-        let csv = "\uFEFF日期,類型,時間\n";
-        logs.forEach(l => { csv += `${l.date},${l.type},${l.time}\n`; });
-
+        if (!logs.length) return alert("無資料");
+        let csv = "\uFEFF日期,類型,時間\n" + logs.map(l => `${l.date},${l.type},${l.time}`).join("\n");
         const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
-        a.href = url;
-        a.download = `工時紀錄_${new Date().getMonth()+1}月.csv`;
+        a.href = URL.createObjectURL(blob);
+        a.download = `工時紀錄_${new Date().toLocaleDateString()}.csv`;
         a.click();
     }
 
-    function clearLogs() { if(confirm("確定刪除？")) { localStorage.removeItem('workLogs'); render(); } }
+    function clearLogs() { if(confirm("確定刪除所有紀錄？")) { localStorage.removeItem('workLogs'); render(); } }
 
     render();
 </script>
