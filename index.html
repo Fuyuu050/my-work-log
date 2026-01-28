@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>工時助手 (含自動計算)</title>
+    <style>
+        body { font-family: -apple-system, sans-serif; display: flex; flex-direction: column; align-items: center; padding: 20px; background: #f8f9fa; color: #333; }
+        .card { background: white; padding: 25px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); width: 100%; max-width: 350px; text-align: center; }
+        #clock { font-size: 1.4rem; color: #444; margin-bottom: 5px; font-weight: bold; }
+        #today-summary { background: #e7f3ff; color: #007bff; padding: 10px; border-radius: 10px; margin-bottom: 20px; font-size: 14px; font-weight: bold; }
+        button { width: 100%; padding: 15px; margin: 8px 0; border: none; border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer; transition: 0.2s; }
+        .btn-in { background: #28a745; color: white; }
+        .btn-out { background: #007bff; color: white; }
+        .btn-export { background: #ffc107; color: #333; margin-top: 15px; }
+        .log-container { margin-top: 25px; width: 100%; max-width: 350px; }
+        ul { list-style: none; padding: 0; }
+        li { background: white; margin-bottom: 8px; padding: 12px; border-radius: 10px; font-size: 13px; border-left: 5px solid #ddd; display: flex; justify-content: space-between; align-items: center; }
+        .type-tag { font-weight: bold; padding: 2px 8px; border-radius: 4px; color: white; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <div id="clock">00:00:00</div>
+    <div id="today-summary">今日累計工時：0 小時 0 分</div>
+    <button class="btn-in" onclick="addLog('上班')">▶ 上班打卡</button>
+    <button class="btn-out" onclick="addLog('下班')">■ 下班打卡</button>
+    <button class="btn-export" onclick="exportCSV()">📁 匯出本月 CSV</button>
+    <button style="background:none; color:#ccc; font-size:11px;" onclick="clearLogs()">清除所有數據</button>
+</div>
+
+<div class="log-container">
+    <h3>最近紀錄</h3>
+    <ul id="logList"></ul>
+</div>
+
+<script>
+    function updateClock() {
+        const now = new Date();
+        document.getElementById('clock').innerText = now.toLocaleTimeString('zh-TW', { hour12: false });
+    }
+    setInterval(updateClock, 1000);
+
+    function addLog(type) {
+        const now = new Date();
+        const entry = {
+            type: type,
+            timestamp: now.getTime(),
+            date: now.toLocaleDateString('zh-TW'),
+            time: now.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false })
+        };
+        let logs = JSON.parse(localStorage.getItem('workLogs') || "[]");
+        logs.unshift(entry);
+        localStorage.setItem('workLogs', JSON.stringify(logs));
+        render();
+    }
+
+    function calculateTodayHours(logs) {
+        const today = new Date().toLocaleDateString('zh-TW');
+        const todayLogs = logs.filter(l => l.date === today).reverse();
+        let totalMs = 0;
+        let lastInTime = null;
+
+        todayLogs.forEach(log => {
+            if (log.type === '上班') {
+                lastInTime = log.timestamp;
+            } else if (log.type === '下班' && lastInTime) {
+                totalMs += (log.timestamp - lastInTime);
+                lastInTime = null;
+            }
+        });
+
+        const totalMinutes = Math.floor(totalMs / 1000 / 60);
+        const h = Math.floor(totalMinutes / 60);
+        const m = totalMinutes % 60;
+        return { h, m };
+    }
+
+    function render() {
+        const logs = JSON.parse(localStorage.getItem('workLogs') || "[]");
+        
+        // 更新今日統計
+        const summary = calculateTodayHours(logs);
+        document.getElementById('today-summary').innerText = `今日累計工時：${summary.h} 小時 ${summary.m} 分`;
+
+        // 更新列表
+        const list = document.getElementById('logList');
+        list.innerHTML = logs.slice(0, 10).map(l => `
+            <li>
+                <span class="type-tag" style="background:${l.type === '上班' ? '#28a745' : '#007bff'}">${l.type}</span>
+                <span>${l.date} ${l.time}</span>
+            </li>
+        `).join('');
+    }
+
+    function exportCSV() {
+        const logs = JSON.parse(localStorage.getItem('workLogs') || "[]");
+        if (logs.length === 0) return alert("沒有資料可匯出");
+
+        let csv = "\uFEFF日期,類型,時間\n";
+        logs.forEach(l => { csv += `${l.date},${l.type},${l.time}\n`; });
+
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `工時紀錄_${new Date().getMonth()+1}月.csv`;
+        a.click();
+    }
+
+    function clearLogs() { if(confirm("確定刪除？")) { localStorage.removeItem('workLogs'); render(); } }
+
+    render();
+</script>
+
+</body>
+</html>
