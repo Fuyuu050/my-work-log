@@ -1,47 +1,61 @@
-function exportCSV() {
-        const logs = JSON.parse(localStorage.getItem('workLogs') || "[]");
-        if (logs.length === 0) return alert("目前沒有紀錄可匯出！");
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>工時助手 Pro</title>
+    
+    <meta name="apple-mobile-web-app-title" content="工時助手">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="apple-touch-icon" href="https://fav.farm/🕒">
+    <link rel="icon" href="https://fav.farm/🕒">
 
-        // 排序：從舊到新計算
-        const sortedLogs = [...logs].sort((a, b) => a.timestamp - b.timestamp);
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; flex-direction: column; align-items: center; padding: 20px; background: #f4f7f9; color: #333; margin: 0; }
+        .card { background: white; padding: 25px; border-radius: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); width: 90%; max-width: 350px; text-align: center; margin-top: 20px; }
+        #clock { font-size: 1.6rem; color: #444; margin-bottom: 5px; font-weight: bold; }
+        #today-summary { background: #e7f3ff; color: #007bff; padding: 12px; border-radius: 12px; margin-bottom: 20px; font-size: 14px; font-weight: bold; }
+        
+        button { width: 100%; padding: 15px; margin: 8px 0; border: none; border-radius: 14px; font-size: 16px; font-weight: 600; cursor: pointer; transition: 0.2s; }
+        button:active { transform: scale(0.96); opacity: 0.9; }
+        .btn-in { background: #28a745; color: white; }
+        .btn-out { background: #007bff; color: white; }
+        .btn-manual { background: #6c757d; color: white; font-size: 14px; }
+        .btn-export { background: #ffc107; color: #333; margin-top: 15px; }
 
-        let csvContent = "\uFEFF日期,類型,時間,當次工時/小計\n"; 
-        let lastInTime = null;
-        let totalMinutesAll = 0; // 用來累計總分鐘數
+        /* 彈窗 Modal */
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); justify-content: center; align-items: center; z-index: 1000; }
+        .modal-content { background: white; padding: 25px; border-radius: 20px; width: 80%; max-width: 300px; }
+        input, select { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 10px; font-size: 16px; box-sizing: border-box; }
 
-        sortedLogs.forEach((l) => {
-            let durationStr = "";
-            
-            if (l.type === '上班') {
-                lastInTime = l.timestamp;
-            } else if (l.type === '下班' && lastInTime) {
-                const diffMs = l.timestamp - lastInTime;
-                const diffMin = Math.floor(diffMs / 60000);
-                totalMinutesAll += diffMin; // 累計總數
-                
-                const h = Math.floor(diffMin / 60);
-                const m = diffMin % 60;
-                durationStr = `${h} 小時 ${m} 分`;
-                lastInTime = null; 
-            }
+        .log-container { margin-top: 25px; width: 90%; max-width: 350px; }
+        ul { list-style: none; padding: 0; }
+        li { background: white; margin-bottom: 8px; padding: 12px; border-radius: 12px; font-size: 13px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 5px rgba(0,0,0,0.02); }
+        .tag { font-weight: bold; padding: 3px 8px; border-radius: 6px; color: white; font-size: 11px; }
+    </style>
+</head>
+<body>
 
-            csvContent += `${l.date},${l.type},${l.time},${durationStr}\n`;
-        });
+<div class="card">
+    <div id="clock">00:00:00</div>
+    <div id="today-summary">今日累計工時：0 小時 0 分</div>
+    <button class="btn-in" onclick="addLog('上班')">▶ 現在上班打卡</button>
+    <button class="btn-out" onclick="addLog('下班')">■ 現在下班打卡</button>
+    <button class="btn-manual" onclick="toggleModal(true)">🕒 補簽紀錄</button>
+    <button class="btn-export" onclick="exportCSV()">📁 匯出 CSV 報表</button>
+    <button style="background:none; color:#bbb; font-size:11px; margin-top:10px;" onclick="clearLogs()">清除所有數據</button>
+</div>
 
-        // 計算總工時
-        const totalH = Math.floor(totalMinutesAll / 60);
-        const totalM = totalMinutesAll % 60;
-
-        // 在 CSV 最後增加空行和總計行
-        csvContent += `\n,,,總累計工時：${totalH} 小時 ${totalM} 分\n`;
-
-        // 下載檔案邏輯
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.setAttribute("href", url);
-        link.setAttribute("download", `工時總結報表_${new Date().toLocaleDateString()}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-    }
+<div id="manualModal" class="modal">
+    <div class="modal-content">
+        <h3 style="margin-top:0">手動補簽</h3>
+        <label>類型：</label>
+        <select id="m-type">
+            <option value="上班">上班</option>
+            <option value="下班">下班</option>
+        </select>
+        <label>時間：</label>
+        <input type="datetime-local" id="m-datetime">
+        <button class="btn-in" onclick="saveManualLog()">確認儲存</button>
+        <button style="background:#eee; color:#333;" onclick="toggleModal
