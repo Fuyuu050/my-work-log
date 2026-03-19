@@ -148,12 +148,51 @@
 
     function exportCSV() {
         const logs = JSON.parse(localStorage.getItem('workLogs') || "[]");
+        if (logs.length === 0) return alert("沒有紀錄可以匯出");
+
+        // 1. 按時間由舊到新排序，方便計算
         const sorted = [...logs].sort((a, b) => a.timestamp - b.timestamp);
-        let csv = "\uFEFF日期,類型,時間,備註\n";
-        sorted.forEach(l => csv += `${l.date},${l.type},${l.time},\n`);
+        
+        let csv = "\uFEFF日期,類型,時間,當次淨工時(已扣午休),備註\n";
+        let lastIn = null;
+        let totalMinutesAll = 0;
+
+        // 2. 逐行遍歷並計算
+        sorted.forEach(l => {
+            let durationStr = "";
+            if (l.type === '上班') {
+                lastIn = l.timestamp;
+            } else if (l.type === '下班' && lastIn) {
+                // 計算分鐘數
+                let diffMin = Math.floor((l.timestamp - lastIn) / 60000);
+                
+                // 邏輯：單段超過 5 小時自動扣 60 分鐘午休
+                if (diffMin >= 300) {
+                    diffMin -= 60;
+                }
+                
+                totalMinutesAll += Math.max(0, diffMin);
+                durationStr = `${Math.floor(diffMin / 60)}h ${diffMin % 60}m`;
+                lastIn = null;
+            }
+            csv += `${l.date},${l.type},${l.time},${durationStr},\n`;
+        });
+
+        // 3. 增加總計行
+        const finalH = Math.floor(totalMinutesAll / 60);
+        const finalM = totalMinutesAll % 60;
+        csv += `\n,,,總累計淨工時：,${finalH} 小時 ${finalM} 分\n`;
+
+        // 4. 執行下載
         const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-        const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
-        a.download = `工時報表_${new Date().toLocaleDateString()}.csv`; a.click();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `工時報表_${new Date().toLocaleDateString('zh-TW').replace(/\//g, '-')}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+
     }
 
     function clearLogs() { if(confirm("確定清空？")) { localStorage.removeItem('workLogs'); render(); } }
